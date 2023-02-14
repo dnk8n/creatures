@@ -1,0 +1,40 @@
+@startuml
+
+class Environment {
+    +alive_creatures : list
+    +hp_scores : dict
+    +turn_counter : int
+    +max_turns : int
+    +create_creatures() : None
+    +run_game() : None
+    +run_turn() : None
+    +update_hp_scores() : None
+}
+
+class Creature {
+    -hp : int
+    -is_alive : bool
+    +take_turn(opponent: Creature) : None
+    +attack(opponent: Creature) : None
+    +run(opponent: Creature) : None
+}
+
+class StrategyAlwaysRun {
+    +take_turn(opponent: Creature) : None
+}
+
+class StrategyAlwaysAttack {
+    +take_turn(opponent: Creature) : None
+}
+
+class StrategyTitForTat {
+    -last_opponent_move : str
+    +take_turn(opponent: Creature) : None
+}
+
+Environment --> Creature
+Creature <|-- StrategyAlwaysRun
+Creature <|-- StrategyAlwaysAttack
+Creature <|-- StrategyTitForTat
+
+@enduml
