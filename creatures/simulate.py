@@ -1,4 +1,3 @@
-import multiprocessing
 import random
 import threading
 import time
@@ -12,55 +11,100 @@ from utils.logging import log
 
 class Strategy:
     """
-    This class represents a particular strategy that an agent might use to
-    choose its actions. For example, a strategy might involve a set of rules
-    or heuristics, or it might involve a machine learning model. The Strategy
-    class might have methods for updating the model parameters, making
-    predictions, and visualizing the strategy
+    Base class for a particular strategy that an agent might use to choose its
+    actions.
 
-    Attributes:
-        game:   The current state of the game
-        env:    he current state of the environment
-        agent:  The current state of the agent
+    For example, a strategy might involve a set of rules or heuristics, or it
+    might involve a machine learning model. It might have methods for updating
+    the model parameters, making predictions, and visualizing the strategy.
 
-    Methods:
-        action() -> action
+    Subclasses must implement the `action` method, which calculates the next
+    action to take based on the states of the environment, game, and agent.
     """
 
     def __init__(self, env, game, agent):
-        self.env = env
-        self.game = game
-        self.agent = agent
+        """
+        Initializes a new instance of the Strategy class.
+
+        Args:
+            env: The instance of the Environment.
+            game: The instance of the Game.
+            agent: The instance of the Agent.
+        """
+        self.env: Environment = env
+        self.game: Game = game
+        self.agent: Agent = agent
 
     def action(self):
         """
         Calculates the next action to take based on the states of the
-        environment, games, and agents
+        environment, game, and agent.
 
         Returns:
-            The action to be taken in the current state
+            The action to be taken in the current state.
         """
         pass
 
 
-class StrategyAlwaysRetreat(Strategy):
+class AlwaysRetreatStrategy(Strategy):
+    """
+    A strategy that always returns "retreat".
+    """
+
     def action(self):
+        """
+        Returns:
+            "retreat"
+        """
         return "retreat"
 
 
-class StrategyAlwaysAttack(Strategy):
+class AlwaysAttackStrategy(Strategy):
+    """
+    A strategy that always returns "attack".
+    """
+
     def action(self):
+        """
+        Returns:
+            "attack"
+        """
         return "attack"
 
 
-class StrategyTitForTat(Strategy):
+class TitForTatStrategy(Strategy):
+    """
+    A strategy that returns the opponent's last non-"skip" move, or "retreat"
+    if the opponent has not made a move yet.
+
+    TODO: Add memory of the past and knowledge of games the agent did not
+    compete in.
+    """
+
     def action(self):
-        # TODO: TitForTat with memory of the past, and knowledge of games agent did not compete in
-        if self.game.state.last_move:
-            for k in range(len(self.game.state.moves) - 1, -1, -2):
-                if (last_move := self.game.state.moves[k]) != "skip":
-                    return last_move
-        return "retreat"
+        """
+        Returns:
+            The opponent's last non-"skip" move, or "retreat" if the opponent
+            has not made a move yet.
+        """
+        return self.game.state.last_non_skip_move or "retreat"
+
+
+class RetreatIfKnownAttackerStrategy(Strategy):
+    """
+    A strategy that returns "retreat" if the opponent's last move was "attack",
+    or "attack" otherwise.
+    """
+
+    def action(self):
+        """
+        Returns:
+            "retreat" if the opponent's last move was "attack", or "attack"
+            otherwise.
+        """
+        if self.game.state.last_non_skip_move == "attack":
+            return "retreat"
+        return "attack"
 
 
 class Agent:
@@ -89,21 +133,58 @@ class Agent:
 
 class Game:
     """
-    This class represents a game that the agents are playing. It typically has
-    rules that determine the payoffs for each agent, based on the actions they
-    choose. The Game class might have methods for computing the payoffs,
-    visualizing the game matrix, and simulating multiple rounds of the game
+    Represents a game that the agents are playing. It typically has rules that
+    determine the payoffs for each agent, based on the actions they choose.
+
+    It might have methods for computing the payoffs, visualizing the game
+    matrix, and simulating multiple rounds of the game.
+
+    Attributes:
+        state: An instance of the State class, which represents the current
+               state of the game.
     """
 
     class State:
+        """
+        Represents the state of a game, including a list of moves made so far.
+
+        Attributes:
+            moves: A list of strings representing the moves made in the game so
+                   far.
+        """
+
         def __init__(self):
+            """
+            Initializes a new instance of the State class.
+            """
             self.moves = []
 
         @property
         def last_move(self):
+            """
+            Returns:
+                The last move made in the game, or None if no moves have been
+                made yet.
+            """
             if len(self.moves) == 0:
                 return None
             return self.moves[-1]
+
+        @property
+        def last_non_skip_move(self):
+            """
+            Returns the last non-"skip" move made in the game, or None if no
+            non-"skip" moves have been made
+
+            Returns:
+                The last non-"skip" move made in the game, or None if no
+                non-"skip" moves have been made
+            """
+            moves = reversed(self.moves)
+            try:
+                return next(move for move in moves if move != "skip")
+            except StopIteration:
+                return None
 
     def __init__(
         self,
@@ -273,7 +354,12 @@ def main():
     env.run(
         num_rounds=1000,
         num_agents_per_strategy=30,
-        strategies=[StrategyAlwaysRetreat, StrategyAlwaysAttack, StrategyTitForTat],
+        strategies=[
+            AlwaysAttackStrategy,
+            AlwaysRetreatStrategy,
+            TitForTatStrategy,
+            RetreatIfKnownAttackerStrategy,
+        ],
         game_properties=dict(
             probability_freeze=0.1,
             probability_attack_success=0.4,
