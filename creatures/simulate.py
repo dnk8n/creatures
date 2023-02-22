@@ -122,9 +122,9 @@ class Agent:
 
     def __init__(
         self,
-        idx,
-        init_hp,
-        strategy,
+        idx: str,
+        init_hp: int,
+        strategy: "Strategy",
     ):
         self.idx = idx
         self.strategy = strategy
@@ -149,15 +149,15 @@ class Game:
         Represents the state of a game, including a list of moves made so far.
 
         Attributes:
-            moves: A list of strings representing the moves made in the game so
-                   far.
+            moves: A list of tuples representing the moves made in the game so
+                   far, and their if successful.
         """
 
         def __init__(self):
             """
             Initializes a new instance of the State class.
             """
-            self.moves = []
+            self.moves: List[Tuple[str, bool]] = []
 
         @property
         def last_move(self):
@@ -168,7 +168,7 @@ class Game:
             """
             if len(self.moves) == 0:
                 return None
-            return self.moves[-1]
+            return self.moves[-1][0]
 
         @property
         def last_non_skip_move(self):
@@ -180,14 +180,15 @@ class Game:
                 The last non-"skip" move made in the game, or None if no
                 non-"skip" moves have been made
             """
-            moves = reversed(self.moves)
             try:
-                return next(move for move in moves if move != "skip")
+                return next(m for m, _ in reversed(self.moves) if m != "skip")
             except StopIteration:
                 return None
 
     def __init__(
         self,
+        round_idx: str,
+        room_idx: str,
         agents: Tuple["Agent"],
         damage_attack_success_given: int,
         damage_attack_success_taken: int,
@@ -197,11 +198,13 @@ class Game:
         damage_retreat_success_taken: int,
         damage_retreat_fail_given: int,
         damage_retreat_fail_taken: int,
-        probability_freeze: float,
+        probability_skip: float,
         probability_attack_success: float,
         probability_retreat_success: float,
         survival_reward: int,
     ):
+        self.round_idx = round_idx
+        self.room_idx = room_idx
         self.agents = agents
         self.damage_attack_success_given = damage_attack_success_given
         self.damage_attack_success_taken = damage_attack_success_taken
@@ -211,7 +214,7 @@ class Game:
         self.damage_retreat_success_taken = damage_retreat_success_taken
         self.damage_retreat_fail_given = damage_retreat_fail_given
         self.damage_retreat_fail_taken = damage_retreat_fail_taken
-        self.probability_freeze = probability_freeze
+        self.probability_skip = probability_skip
         self.probability_attack_success = probability_attack_success
         self.probability_retreat_success = probability_retreat_success
         self.survival_reward = survival_reward
@@ -243,7 +246,7 @@ class Game:
     #     pass
 
     def _skip_turn(self):
-        if random.random() < self.probability_freeze:
+        if random.random() < self.probability_skip:
             self._submit_skip
             return True
         else:
@@ -272,7 +275,7 @@ class Game:
         pass
 
     def _execute_move(self, agent):
-        if random.random() < self.probability_freeze:
+        if random.random() < self.probability_skip:
             pass
 
 
@@ -285,16 +288,31 @@ class Environment:
     the environment.
     """
 
-    _new_agent_idx = 0
-
-    @property
-    def new_agent_idx(self):
-        Environment._new_agent_idx += 1
-        return Environment._new_agent_idx
-
     class State:
         def __init__(self):
+            self.num_agents = 0
+            self.num_rooms = 0
+            self.num_rounds = 0
             self.game_history = []
+
+        @property
+        def _new_agent_idx(self):
+            idx = str(self.num_agents).zfill(4)
+            self.num_agents += 1
+            return idx
+
+        @property
+        def _new_room_idx(self):
+            idx = str(self.num_rooms).zfill(4)
+            self.num_rooms += 1
+            return idx
+
+        @property
+        def _new_round_idx(self):
+            idx = str(self.num_rounds).zfill(4)
+            self.num_rounds += 1
+            self.num_rooms = 0
+            return idx
 
     def __init__(self):
         self.state = self.State()
@@ -318,63 +336,76 @@ class Environment:
         return pairs
 
     @staticmethod
-    def run_game(game, round_idx):
+    def run_game(game):
         agent_a = game.agents[0]
         agent_b = game.agents[1]
-        game_title = f"Round {round_idx} - {agent_a.idx}({agent_a.strategy.__name__}) vs {agent_b.idx}({agent_b.strategy.__name__})"
+        game_title = f"Round {game.round_idx} - Room {game.room_idx} - {agent_a.idx}({agent_a.strategy.__name__}) vs {agent_b.idx}({agent_b.strategy.__name__})"
         log.info(f"BEGIN: {game_title}")
         game.run()
         log.info(f"END:   {game_title}")
 
-    def run(self, num_rounds, num_agents_per_strategy, strategies, game_properties):
-        agents = [
-            Agent(idx=str(self.new_agent_idx).zfill(4), init_hp=100, strategy=strategy)
+    def init_agents(self, init_hp, strategies, num_agents_per_strategy):
+        return [
+            Agent(idx=self.state._new_agent_idx, init_hp=init_hp, strategy=strategy)
             for strategy in strategies
             for _ in range(num_agents_per_strategy)
         ]
-        # Run the simulation for the specified number of rounds
-        for round_idx in range(num_rounds):
-            log.info(f"Round {round_idx} started!")
-            threads = [
-                threading.Thread(
-                    target=self.run_game,
-                    args=(Game(pair, **game_properties), round_idx),
-                )
-                for pair in self.get_pairs(agents)
-            ]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join()
-            # TODO: Save results of games to environment history
+
+    def simulate_round(self, round_idx, agents, game_properties):
+        threads = [
+            threading.Thread(
+                target=self.run_game,
+                args=(
+                    Game(
+                        round_idx=round_idx,
+                        room_idx=self.state._new_room_idx,
+                        agents=pair,
+                        **game_properties,
+                    ),
+                ),
+            )
+            for pair in self.get_pairs(agents)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        # TODO: Save results of games to environment history
 
 
 def main():
     env = Environment()
-    env.run(
-        num_rounds=1000,
-        num_agents_per_strategy=30,
+    agents = env.init_agents(
+        init_hp=100,
         strategies=[
             AlwaysAttackStrategy,
             AlwaysRetreatStrategy,
             TitForTatStrategy,
             RetreatIfKnownAttackerStrategy,
         ],
-        game_properties=dict(
-            probability_freeze=0.1,
-            probability_attack_success=0.4,
-            probability_retreat_success=0.8,
-            damage_attack_success_given=4,
-            damage_attack_success_taken=1,
-            damage_attack_fail_given=0,
-            damage_attack_fail_taken=2,
-            damage_retreat_success_given=1,
-            damage_retreat_success_taken=0,
-            damage_retreat_fail_given=0,
-            damage_retreat_fail_taken=3,
-            survival_reward=1,
-        ),
+        num_agents_per_strategy=30,
     )
+    game_properties = dict(
+        probability_skip=0.1,
+        probability_attack_success=0.4,
+        probability_retreat_success=0.8,
+        damage_attack_success_given=4,
+        damage_attack_success_taken=1,
+        damage_attack_fail_given=0,
+        damage_attack_fail_taken=2,
+        damage_retreat_success_given=1,
+        damage_retreat_success_taken=0,
+        damage_retreat_fail_given=0,
+        damage_retreat_fail_taken=3,
+        survival_reward=1,
+    )
+    num_rounds = 3
+    for _ in range(num_rounds):
+        env.simulate_round(
+            round_idx=env.state._new_round_idx,
+            agents=agents,
+            game_properties=game_properties,
+        )
 
 
 if __name__ == "__main__":
