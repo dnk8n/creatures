@@ -103,8 +103,9 @@ class Agent:
     """
 
     class State:
-        def __init__(self, hp):
-            self.hp = hp
+        def __init__(self, init_hp):
+            self.hp = init_hp
+            self.xp = 0
 
     def __init__(
         self,
@@ -114,7 +115,7 @@ class Agent:
     ):
         self.idx = idx
         self.strategy = strategy
-        self.state = self.State(hp=init_hp)
+        self.state = self.State(init_hp)
 
 
 class Game:
@@ -190,6 +191,7 @@ class Game:
         probability_attack_success: float,
         probability_retreat_success: float,
         next_round_hp_bonus: int,
+        next_round_xp_bonus: int,
     ):
         self.round_idx = round_idx
         self.room_idx = room_idx
@@ -206,6 +208,7 @@ class Game:
         self.probability_attack_success = probability_attack_success
         self.probability_retreat_success = probability_retreat_success
         self.next_round_hp_bonus = next_round_hp_bonus
+        self.next_round_xp_bonus = next_round_xp_bonus
         self.state = self.State()
 
     def run(self):
@@ -224,6 +227,7 @@ class Game:
         for agent in self.agents:
             if agent.state.hp >= 0:
                 agent.state.hp += self.next_round_hp_bonus
+                agent.state.xp += self.next_round_xp_bonus
         log.info(f"END:   {game_title}")
 
     def _game_ended(self):
@@ -263,8 +267,9 @@ class Game:
 
     def _attack(self):
         if random.random() < self.probability_attack_success:
-            self.state.defender.state.hp -= self.damage_attack_success_given
             self.state.attacker.state.hp -= self.damage_attack_success_taken
+            self.state.attacker.state.xp += self.damage_attack_success_given
+            self.state.defender.state.hp -= self.damage_attack_success_given
             self.state.moves.append(
                 (
                     "attack",
@@ -272,8 +277,9 @@ class Game:
                 )
             )
         else:
-            self.state.defender.state.hp -= self.damage_attack_fail_given
             self.state.attacker.state.hp -= self.damage_attack_fail_taken
+            self.state.attacker.state.xp += self.damage_attack_fail_given
+            self.state.defender.state.hp -= self.damage_attack_fail_given
             self.state.moves.append(
                 (
                     "attack",
@@ -283,8 +289,9 @@ class Game:
 
     def _retreat(self):
         if random.random() < self.probability_retreat_success:
-            self.state.defender.state.hp -= self.damage_retreat_success_given
             self.state.attacker.state.hp -= self.damage_retreat_success_taken
+            self.state.attacker.state.xp += self.damage_retreat_success_given
+            self.state.defender.state.hp -= self.damage_retreat_success_given
             self.state.moves.append(
                 (
                     "retreat",
@@ -292,8 +299,9 @@ class Game:
                 )
             )
         else:
-            self.state.defender.state.hp -= self.damage_retreat_fail_given
             self.state.attacker.state.hp -= self.damage_retreat_fail_taken
+            self.state.attacker.state.xp += self.damage_retreat_fail_given
+            self.state.defender.state.hp -= self.damage_retreat_fail_given
             self.state.moves.append(
                 (
                     "retreat",
@@ -345,11 +353,17 @@ class Environment:
                 total_hp_by_strategy[agent.strategy] += agent.state.hp
             self.total_hp_by_strategy = total_hp_by_strategy
 
+        def update_total_xp_by_strategy(self, strategies):
+            total_xp_by_strategy = {strategy: 0 for strategy in strategies}
+            for agent in self.agents:
+                total_xp_by_strategy[agent.strategy] += agent.state.xp
+            self.total_xp_by_strategy = total_xp_by_strategy
+
         def choose_agent_strategy(self):
-            total_hp = sum(self.total_hp_by_strategy.values())
+            total_xp = sum(self.total_xp_by_strategy.values())
             strategy_probabilities = {
-                strategy: hp / total_hp
-                for strategy, hp in self.total_hp_by_strategy.items()
+                strategy: xp / total_xp
+                for strategy, xp in self.total_xp_by_strategy.items()
             }
             strategy_choices = list(strategy_probabilities.keys())
             strategy_weights = list(strategy_probabilities.values())
@@ -407,6 +421,7 @@ class Environment:
         )
         self.state.agents_fallen.extend(newly_fallen)
         self.state.update_total_hp_by_strategy(self.agent_properties["strategies"])
+        self.state.update_total_xp_by_strategy(self.agent_properties["strategies"])
         self.state.agents.extend(
             [
                 Agent(
@@ -444,6 +459,7 @@ def main():
             damage_retreat_fail_given=0,
             damage_retreat_fail_taken=3,
             next_round_hp_bonus=1,
+            next_round_xp_bonus=4,
         ),
     )
     num_rounds = 1000
