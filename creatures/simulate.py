@@ -22,20 +22,8 @@ class Strategy:
     action to take based on the states of the environment, game, and agent.
     """
 
-    def __init__(self, env, game, agent):
-        """
-        Initializes a new instance of the Strategy class.
-
-        Args:
-            env: The instance of the Environment.
-            game: The instance of the Game.
-            agent: The instance of the Agent.
-        """
-        self.env: Environment = env
-        self.game: Game = game
-        self.agent: Agent = agent
-
-    def action(self):
+    @classmethod
+    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
         """
         Calculates the next action to take based on the states of the
         environment, game, and agent.
@@ -51,7 +39,7 @@ class AlwaysRetreatStrategy(Strategy):
     A strategy that always returns "retreat".
     """
 
-    def action(self):
+    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
         """
         Returns:
             "retreat"
@@ -64,7 +52,7 @@ class AlwaysAttackStrategy(Strategy):
     A strategy that always returns "attack".
     """
 
-    def action(self):
+    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
         """
         Returns:
             "attack"
@@ -76,18 +64,16 @@ class TitForTatStrategy(Strategy):
     """
     A strategy that returns the opponent's last non-"skip" move, or "retreat"
     if the opponent has not made a move yet.
-
-    TODO: Add memory of the past and knowledge of games the agent did not
-    compete in.
     """
 
-    def action(self):
+    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
         """
         Returns:
             The opponent's last non-"skip" move, or "retreat" if the opponent
             has not made a move yet.
         """
-        return self.game.state.last_non_skip_move or "retreat"
+        # TODO: Add memory of the past and knowledge of other games
+        return game.state.last_non_skip_move or "retreat"
 
 
 class RetreatIfKnownAttackerStrategy(Strategy):
@@ -96,13 +82,13 @@ class RetreatIfKnownAttackerStrategy(Strategy):
     or "attack" otherwise.
     """
 
-    def action(self):
+    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
         """
         Returns:
             "retreat" if the opponent's last move was "attack", or "attack"
             otherwise.
         """
-        if self.game.state.last_non_skip_move == "attack":
+        if game.state.last_non_skip_move == "attack":
             return "retreat"
         return "attack"
 
@@ -158,6 +144,8 @@ class Game:
             Initializes a new instance of the State class.
             """
             self.moves: List[Tuple[str, bool]] = []
+            self.attacker: "Agent" = None
+            self.defender: "Agent" = None
 
         @property
         def last_move(self):
@@ -201,7 +189,7 @@ class Game:
         probability_skip: float,
         probability_attack_success: float,
         probability_retreat_success: float,
-        survival_reward: int,
+        next_round_hp_bonus: int,
     ):
         self.round_idx = round_idx
         self.room_idx = room_idx
@@ -217,66 +205,101 @@ class Game:
         self.probability_skip = probability_skip
         self.probability_attack_success = probability_attack_success
         self.probability_retreat_success = probability_retreat_success
-        self.survival_reward = survival_reward
+        self.next_round_hp_bonus = next_round_hp_bonus
         self.state = self.State()
 
     def run(self):
-        time.sleep(random.random() * 5)
+        agent_a = self.agents[0]
+        agent_b = self.agents[1]
+        game_title = f"Round {self.round_idx} - Room {self.room_idx} - {agent_a.idx}({agent_a.strategy.__name__}) vs {agent_b.idx}({agent_b.strategy.__name__})"
+        log.info(f"BEGIN: {game_title}")
+        while not self._game_ended():
+            if self.state.attacker == agent_a:
+                self.state.attacker = agent_b
+                self.state.defender = agent_a
+            else:
+                self.state.attacker = agent_a
+                self.state.defender = agent_b
+            self._process_turn()
+        for agent in self.agents:
+            if agent.state.hp >= 0:
+                agent.state.hp += self.next_round_hp_bonus
+        log.info(f"END:   {game_title}")
 
-    # TODO: agents[0/1].strategy.action()
-
-    def record_action(self, agent):
-        if not self._skip_turn:
-            self.state.moves.append()
-
-    def submit_retreat(self, agent):
-        if not self._skip_turn:
-            self.state.moves.append(self.retreat)
-
-    # def set_payoff_matrix(self, matrix):
-    #     # Set the payoff matrix for the game
-    #     pass
-
-    # def compute_payoffs(self, actions):
-    #     # Compute the payoffs for each agent based on the actions they took
-    #     pass
-
-    # def visualize(self):
-    #     # Visualize the game matrix
-    #     pass
-
-    def _skip_turn(self):
-        if random.random() < self.probability_skip:
-            self._submit_skip
-            return True
-        else:
+    def _game_ended(self):
+        """
+        Returns:
+            True if the game has ended, False otherwise.
+        """
+        if not self.state.attacker or not self.state.defender:
             return False
+        if self.state.attacker.state.hp < 0 or self.state.defender.state.hp < 0:
+            return True
+        if self.state.moves[-1][0] == "retreat" and self.state.moves[-1][1]:
+            return True
+        return False
 
-    def _submit_skip(self):
-        self.state.moves.append(self.skip)
-
-    def _attack(self, agent):
-        if random.random() < self.probability_attack_success:
-            agent.opponent.hp -= self.damage_attack_success_given
-            self.hp -= self.damage_attack_success_taken
-        else:
-            agent.opponent.hp -= self.damage_attack_fail_given
-            self.hp -= self.damage_attack_fail_taken
-
-    def _retreat(self, agent):
-        if random.random() < self.probability_retreat_success:
-            agent.opponent.hp -= self.damage_retreat_success_given
-            self.hp -= self.damage_retreat_success_taken
-        else:
-            agent.opponent.hp -= self.damage_retreat_fail_given
-            self.hp -= self.damage_retreat_fail_taken
-
-    def _skip(self, agent):
-        pass
-
-    def _execute_move(self, agent):
+    def _process_turn(self):
         if random.random() < self.probability_skip:
-            pass
+            self._skip()
+        else:
+            action = self.state.attacker.strategy.action(
+                env=None, game=self, agent=self.state.attacker
+            )
+            if action == "attack":
+                self._attack()
+            elif action == "retreat":
+                self._retreat()
+            else:
+                raise ValueError(f"Invalid Action, {action}")
+
+    def _skip(self):
+        self.state.moves.append(
+            (
+                "skip",
+                None,
+            )
+        )
+
+    def _attack(self):
+        if random.random() < self.probability_attack_success:
+            self.state.defender.state.hp -= self.damage_attack_success_given
+            self.state.attacker.state.hp -= self.damage_attack_success_taken
+            self.state.moves.append(
+                (
+                    "attack",
+                    True,
+                )
+            )
+        else:
+            self.state.defender.state.hp -= self.damage_attack_fail_given
+            self.state.attacker.state.hp -= self.damage_attack_fail_taken
+            self.state.moves.append(
+                (
+                    "attack",
+                    False,
+                )
+            )
+
+    def _retreat(self):
+        if random.random() < self.probability_retreat_success:
+            self.state.defender.state.hp -= self.damage_retreat_success_given
+            self.state.attacker.state.hp -= self.damage_retreat_success_taken
+            self.state.moves.append(
+                (
+                    "retreat",
+                    True,
+                )
+            )
+        else:
+            self.state.defender.state.hp -= self.damage_retreat_fail_given
+            self.state.attacker.state.hp -= self.damage_retreat_fail_taken
+            self.state.moves.append(
+                (
+                    "retreat",
+                    False,
+                )
+            )
 
 
 class Environment:
@@ -293,7 +316,9 @@ class Environment:
             self.num_agents = 0
             self.num_rooms = 0
             self.num_rounds = 0
-            self.game_history = []
+            self.agents = []
+            self.agents_fallen = []
+            self.total_hp_by_strategy = None
 
         @property
         def _new_agent_idx(self):
@@ -314,98 +339,119 @@ class Environment:
             self.num_rooms = 0
             return idx
 
-    def __init__(self):
+        def update_total_hp_by_strategy(self, strategies):
+            total_hp_by_strategy = {strategy: 0 for strategy in strategies}
+            for agent in self.agents:
+                total_hp_by_strategy[agent.strategy] += agent.state.hp
+            self.total_hp_by_strategy = total_hp_by_strategy
+
+        def choose_agent_strategy(self):
+            total_hp = sum(self.total_hp_by_strategy.values())
+            strategy_probabilities = {
+                strategy: hp / total_hp
+                for strategy, hp in self.total_hp_by_strategy.items()
+            }
+            strategy_choices = list(strategy_probabilities.keys())
+            strategy_weights = list(strategy_probabilities.values())
+            return random.choices(strategy_choices, weights=strategy_weights, k=1)[0]
+
+    def __init__(self, agent_properties, game_properties):
+        self.agent_properties = agent_properties
+        self.game_properties = game_properties
         self.state = self.State()
-
-    def update_state(self, actions):
-        # Update the state of the environment based on the actions of the agents
-        pass
-
-    def compute_reward(self, agent: "Agent") -> float:
-        # Compute the reward for the given agent based on the current state of the environment
-        pass
-
-    def visualize(self):
-        # Visualize the current state of the environment
-        pass
-
-    @staticmethod
-    def get_pairs(agents):
-        random.shuffle(agents)
-        pairs = [(agents[i], agents[i + 1]) for i in range(0, len(agents), 2)]
-        return pairs
+        self.state.agents = [
+            Agent(
+                idx=self.state._new_agent_idx,
+                init_hp=agent_properties["init_hp"],
+                strategy=strategy,
+            )
+            for strategy in agent_properties["strategies"]
+            for _ in range(agent_properties["num_agents_per_strategy"])
+        ]
 
     @staticmethod
     def run_game(game):
-        agent_a = game.agents[0]
-        agent_b = game.agents[1]
-        game_title = f"Round {game.round_idx} - Room {game.room_idx} - {agent_a.idx}({agent_a.strategy.__name__}) vs {agent_b.idx}({agent_b.strategy.__name__})"
-        log.info(f"BEGIN: {game_title}")
         game.run()
-        log.info(f"END:   {game_title}")
 
-    def init_agents(self, init_hp, strategies, num_agents_per_strategy):
+    def get_shuffled_pairs(self):
+        random.shuffle(self.state.agents)
         return [
-            Agent(idx=self.state._new_agent_idx, init_hp=init_hp, strategy=strategy)
-            for strategy in strategies
-            for _ in range(num_agents_per_strategy)
+            (self.state.agents[i], self.state.agents[i + 1])
+            for i in range(0, len(self.state.agents), 2)
         ]
 
-    def simulate_round(self, round_idx, agents, game_properties):
-        threads = [
-            threading.Thread(
-                target=self.run_game,
-                args=(
-                    Game(
-                        round_idx=round_idx,
-                        room_idx=self.state._new_room_idx,
-                        agents=pair,
-                        **game_properties,
-                    ),
-                ),
+    def simulate_round(self):
+        round_idx = self.state._new_round_idx
+        games = [
+            Game(
+                round_idx=round_idx,
+                room_idx=self.state._new_room_idx,
+                agents=pair,
+                **self.game_properties,
             )
-            for pair in self.get_pairs(agents)
+            for pair in self.get_shuffled_pairs()
+        ]
+        threads = [
+            threading.Thread(target=self.run_game, args=(game,)) for game in games
         ]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join()
-        # TODO: Save results of games to environment history
+        this_round_agents = list(self.state.agents)
+        self.state.agents = [
+            agent for agent in this_round_agents if agent.state.hp >= 0
+        ]
+        newly_fallen = list(
+            set(this_round_agents).symmetric_difference(set(self.state.agents))
+        )
+        self.state.agents_fallen.extend(newly_fallen)
+        self.state.update_total_hp_by_strategy(self.agent_properties["strategies"])
+        self.state.agents.extend(
+            [
+                Agent(
+                    idx=self.state._new_agent_idx,
+                    init_hp=self.agent_properties["init_hp"],
+                    strategy=self.state.choose_agent_strategy(),
+                )
+                for _ in range(len(newly_fallen))
+            ]
+        )
 
 
 def main():
-    env = Environment()
-    agents = env.init_agents(
-        init_hp=100,
-        strategies=[
-            AlwaysAttackStrategy,
-            AlwaysRetreatStrategy,
-            TitForTatStrategy,
-            RetreatIfKnownAttackerStrategy,
-        ],
-        num_agents_per_strategy=30,
+    env = Environment(
+        agent_properties=dict(
+            init_hp=100,
+            strategies=[
+                AlwaysAttackStrategy,
+                AlwaysRetreatStrategy,
+                TitForTatStrategy,
+                RetreatIfKnownAttackerStrategy,
+            ],
+            num_agents_per_strategy=30,
+        ),
+        game_properties=dict(
+            probability_skip=0.1,
+            probability_attack_success=0.4,
+            probability_retreat_success=0.8,
+            damage_attack_success_given=4,
+            damage_attack_success_taken=1,
+            damage_attack_fail_given=0,
+            damage_attack_fail_taken=2,
+            damage_retreat_success_given=1,
+            damage_retreat_success_taken=0,
+            damage_retreat_fail_given=0,
+            damage_retreat_fail_taken=3,
+            next_round_hp_bonus=1,
+        ),
     )
-    game_properties = dict(
-        probability_skip=0.1,
-        probability_attack_success=0.4,
-        probability_retreat_success=0.8,
-        damage_attack_success_given=4,
-        damage_attack_success_taken=1,
-        damage_attack_fail_given=0,
-        damage_attack_fail_taken=2,
-        damage_retreat_success_given=1,
-        damage_retreat_success_taken=0,
-        damage_retreat_fail_given=0,
-        damage_retreat_fail_taken=3,
-        survival_reward=1,
-    )
-    num_rounds = 3
+    num_rounds = 1000
     for _ in range(num_rounds):
-        env.simulate_round(
-            round_idx=env.state._new_round_idx,
-            agents=agents,
-            game_properties=game_properties,
-        )
+        env.simulate_round()
+    import ipdb
+
+    ipdb.set_trace()
 
 
 if __name__ == "__main__":
