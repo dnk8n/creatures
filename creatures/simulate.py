@@ -2,7 +2,7 @@ import random
 import threading
 import time
 from typing import List, Tuple
-
+import pickle
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -62,7 +62,7 @@ class AlwaysAttackStrategy(Strategy):
 
 class TitForTatStrategy(Strategy):
     """
-    A strategy that returns the opponent's last non-"skip" move, or "retreat"
+    A strategy that returns the opponent's last non-"skip" move, or "attack"
     if the opponent has not made a move yet.
     """
 
@@ -73,7 +73,7 @@ class TitForTatStrategy(Strategy):
             has not made a move yet.
         """
         # TODO: Add memory of the past and knowledge of other games
-        return game.state.last_non_skip_move or "retreat"
+        return game.state.last_non_skip_move or "attack"
 
 
 class RetreatIfKnownAttackerStrategy(Strategy):
@@ -179,36 +179,52 @@ class Game:
         round_idx: str,
         room_idx: str,
         agents: Tuple["Agent"],
-        damage_attack_success_given: int,
-        damage_attack_success_taken: int,
-        damage_attack_fail_given: int,
-        damage_attack_fail_taken: int,
-        damage_retreat_success_given: int,
-        damage_retreat_success_taken: int,
-        damage_retreat_fail_given: int,
-        damage_retreat_fail_taken: int,
         probability_skip: float,
         probability_attack_success: float,
         probability_retreat_success: float,
-        next_round_hp_bonus: int,
-        next_round_xp_bonus: int,
+        hp_attack_success_defender: int,
+        hp_attack_success_attacker: int,
+        hp_attack_fail_defender: int,
+        hp_attack_fail_attacker: int,
+        hp_retreat_success_defender: int,
+        hp_retreat_success_attacker: int,
+        hp_retreat_fail_defender: int,
+        hp_retreat_fail_attacker: int,
+        xp_attack_success_defender: int,
+        xp_attack_success_attacker: int,
+        xp_attack_fail_defender: int,
+        xp_attack_fail_attacker: int,
+        xp_retreat_success_defender: int,
+        xp_retreat_success_attacker: int,
+        xp_retreat_fail_defender: int,
+        xp_retreat_fail_attacker: int,
+        hp_bonus: int,
+        xp_bonus: int,
     ):
         self.round_idx = round_idx
         self.room_idx = room_idx
         self.agents = agents
-        self.damage_attack_success_given = damage_attack_success_given
-        self.damage_attack_success_taken = damage_attack_success_taken
-        self.damage_attack_fail_given = damage_attack_fail_given
-        self.damage_attack_fail_taken = damage_attack_fail_taken
-        self.damage_retreat_success_given = damage_retreat_success_given
-        self.damage_retreat_success_taken = damage_retreat_success_taken
-        self.damage_retreat_fail_given = damage_retreat_fail_given
-        self.damage_retreat_fail_taken = damage_retreat_fail_taken
         self.probability_skip = probability_skip
         self.probability_attack_success = probability_attack_success
         self.probability_retreat_success = probability_retreat_success
-        self.next_round_hp_bonus = next_round_hp_bonus
-        self.next_round_xp_bonus = next_round_xp_bonus
+        self.hp_attack_success_defender = hp_attack_success_defender
+        self.hp_attack_success_attacker = hp_attack_success_attacker
+        self.hp_attack_fail_defender = hp_attack_fail_defender
+        self.hp_attack_fail_attacker = hp_attack_fail_attacker
+        self.hp_retreat_success_defender = hp_retreat_success_defender
+        self.hp_retreat_success_attacker = hp_retreat_success_attacker
+        self.hp_retreat_fail_defender = hp_retreat_fail_defender
+        self.hp_retreat_fail_attacker = hp_retreat_fail_attacker
+        self.xp_attack_success_defender = xp_attack_success_defender
+        self.xp_attack_success_attacker = xp_attack_success_attacker
+        self.xp_attack_fail_defender = xp_attack_fail_defender
+        self.xp_attack_fail_attacker = xp_attack_fail_attacker
+        self.xp_retreat_success_defender = xp_retreat_success_defender
+        self.xp_retreat_success_attacker = xp_retreat_success_attacker
+        self.xp_retreat_fail_defender = xp_retreat_fail_defender
+        self.xp_retreat_fail_attacker = xp_retreat_fail_attacker
+        self.hp_bonus = hp_bonus
+        self.xp_bonus = xp_bonus
         self.state = self.State()
 
     def run(self):
@@ -226,8 +242,8 @@ class Game:
             self._process_turn()
         for agent in self.agents:
             if agent.state.hp >= 0:
-                agent.state.hp += self.next_round_hp_bonus
-                agent.state.xp += self.next_round_xp_bonus
+                agent.state.hp += self.hp_bonus
+                agent.state.xp += self.xp_bonus
         log.info(f"END:   {game_title}")
 
     def _game_ended(self):
@@ -267,9 +283,10 @@ class Game:
 
     def _attack(self):
         if random.random() < self.probability_attack_success:
-            self.state.attacker.state.hp -= self.damage_attack_success_taken
-            self.state.attacker.state.xp += self.damage_attack_success_given
-            self.state.defender.state.hp -= self.damage_attack_success_given
+            self.state.defender.state.hp += self.hp_attack_success_defender
+            self.state.attacker.state.hp += self.hp_attack_success_attacker
+            self.state.defender.state.xp += self.xp_attack_success_defender
+            self.state.attacker.state.xp += self.xp_attack_success_attacker
             self.state.moves.append(
                 (
                     "attack",
@@ -277,9 +294,10 @@ class Game:
                 )
             )
         else:
-            self.state.attacker.state.hp -= self.damage_attack_fail_taken
-            self.state.attacker.state.xp += self.damage_attack_fail_given
-            self.state.defender.state.hp -= self.damage_attack_fail_given
+            self.state.defender.state.hp += self.hp_attack_fail_defender
+            self.state.attacker.state.hp += self.hp_attack_fail_attacker
+            self.state.defender.state.xp += self.xp_attack_fail_defender
+            self.state.attacker.state.xp += self.xp_attack_fail_attacker
             self.state.moves.append(
                 (
                     "attack",
@@ -289,9 +307,10 @@ class Game:
 
     def _retreat(self):
         if random.random() < self.probability_retreat_success:
-            self.state.attacker.state.hp -= self.damage_retreat_success_taken
-            self.state.attacker.state.xp += self.damage_retreat_success_given
-            self.state.defender.state.hp -= self.damage_retreat_success_given
+            self.state.defender.state.hp += self.hp_retreat_success_defender
+            self.state.attacker.state.hp += self.hp_retreat_success_attacker
+            self.state.defender.state.xp += self.xp_retreat_success_defender
+            self.state.attacker.state.xp += self.xp_retreat_success_attacker
             self.state.moves.append(
                 (
                     "retreat",
@@ -299,9 +318,10 @@ class Game:
                 )
             )
         else:
-            self.state.attacker.state.hp -= self.damage_retreat_fail_taken
-            self.state.attacker.state.xp += self.damage_retreat_fail_given
-            self.state.defender.state.hp -= self.damage_retreat_fail_given
+            self.state.defender.state.hp += self.hp_retreat_fail_defender
+            self.state.attacker.state.hp += self.hp_retreat_fail_attacker
+            self.state.defender.state.xp += self.xp_retreat_fail_defender
+            self.state.attacker.state.xp += self.xp_retreat_fail_attacker
             self.state.moves.append(
                 (
                     "retreat",
@@ -324,9 +344,11 @@ class Environment:
             self.num_agents = 0
             self.num_rooms = 0
             self.num_rounds = 0
+            self.game_rounds = []
             self.agents = []
             self.agents_fallen = []
             self.total_hp_by_strategy = None
+            self.total_xp_by_strategy = None
 
         @property
         def _new_agent_idx(self):
@@ -361,13 +383,19 @@ class Environment:
 
         def choose_agent_strategy(self):
             total_xp = sum(self.total_xp_by_strategy.values())
-            strategy_probabilities = {
-                strategy: xp / total_xp
-                for strategy, xp in self.total_xp_by_strategy.items()
-            }
-            strategy_choices = list(strategy_probabilities.keys())
-            strategy_weights = list(strategy_probabilities.values())
-            return random.choices(strategy_choices, weights=strategy_weights, k=1)[0]
+            try:
+                strategy_probabilities = {
+                    strategy: xp / total_xp
+                    for strategy, xp in self.total_xp_by_strategy.items()
+                }
+                strategy_choices = list(strategy_probabilities.keys())
+                strategy_weights = list(strategy_probabilities.values())
+                return random.choices(strategy_choices, weights=strategy_weights, k=1)[
+                    0
+                ]
+            except ZeroDivisionError:
+                strategy_choices = list(strategy_probabilities.keys())
+                return random.choices(strategy_choices, k=1)[0]
 
     def __init__(self, agent_properties, game_properties):
         self.agent_properties = agent_properties
@@ -405,6 +433,7 @@ class Environment:
             )
             for pair in self.get_shuffled_pairs()
         ]
+        self.state.game_rounds.append(games)
         threads = [
             threading.Thread(target=self.run_game, args=(game,)) for game in games
         ]
@@ -434,10 +463,10 @@ class Environment:
         )
 
 
-def main():
+def main(save_to_file=None):
     env = Environment(
         agent_properties=dict(
-            init_hp=100,
+            init_hp=1000,
             strategies=[
                 AlwaysAttackStrategy,
                 AlwaysRetreatStrategy,
@@ -448,27 +477,40 @@ def main():
         ),
         game_properties=dict(
             probability_skip=0.1,
-            probability_attack_success=0.4,
-            probability_retreat_success=0.8,
-            damage_attack_success_given=4,
-            damage_attack_success_taken=1,
-            damage_attack_fail_given=0,
-            damage_attack_fail_taken=2,
-            damage_retreat_success_given=1,
-            damage_retreat_success_taken=0,
-            damage_retreat_fail_given=0,
-            damage_retreat_fail_taken=3,
-            next_round_hp_bonus=1,
-            next_round_xp_bonus=4,
+            probability_attack_success=0.7,
+            probability_retreat_success=0.6,
+            hp_attack_success_defender=-10,  # defender loses 10hp upon successful attack
+            hp_attack_success_attacker=0,
+            hp_attack_fail_defender=0,
+            hp_attack_fail_attacker=0,
+            hp_retreat_success_defender=0,
+            hp_retreat_success_attacker=0,
+            hp_retreat_fail_defender=0,
+            hp_retreat_fail_attacker=-1,  # attacker loses 1hp if retreat fails
+            xp_attack_success_defender=0,
+            xp_attack_success_attacker=10,  # Attacker gains 10 xp upon successful attack
+            xp_attack_fail_defender=1,  # Defender gains 1 xp if attack is a fail
+            xp_attack_fail_attacker=0,
+            xp_retreat_success_defender=1,  # Defender gains 1 xp if retreat is successful
+            xp_retreat_success_attacker=0,
+            xp_retreat_fail_defender=1,  # Defender gains 1xp if retreat is a fail
+            xp_retreat_fail_attacker=0,
+            hp_bonus=1,
+            xp_bonus=1,
         ),
     )
     num_rounds = 1000
     for _ in range(num_rounds):
         env.simulate_round()
-    import ipdb
+    if save_to_file:
+        with open(save_to_file, "wb") as f:
+            pickle.dump(env, f)
 
-    ipdb.set_trace()
+
+def load_from_file(path):
+    with open(path, "rb") as f:
+        return pickle.load(f)
 
 
 if __name__ == "__main__":
-    main()
+    main(save_to_file="/tmp/environment.pickle")
