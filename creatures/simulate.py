@@ -18,11 +18,10 @@ class Strategy:
     might involve a machine learning model. It might have methods for updating
     the model parameters, making predictions, and visualizing the strategy.
 
-    Subclasses must implement the `action` method, which calculates the next
+    Subclasses must implement the `action` method, which calcs the next
     action to take based on the states of the environment, game, and agent.
     """
 
-    @classmethod
     def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
         """
         Calculates the next action to take based on the states of the
@@ -34,7 +33,7 @@ class Strategy:
         pass
 
 
-class AlwaysRetreatStrategy(Strategy):
+class RetreatStrategy(Strategy):
     """
     A strategy that always returns "retreat".
     """
@@ -47,7 +46,7 @@ class AlwaysRetreatStrategy(Strategy):
         return "retreat"
 
 
-class AlwaysAttackStrategy(Strategy):
+class AttackStrategy(Strategy):
     """
     A strategy that always returns "attack".
     """
@@ -60,37 +59,71 @@ class AlwaysAttackStrategy(Strategy):
         return "attack"
 
 
-class TitForTatStrategy(Strategy):
+class RetaliateStrategy(Strategy):
     """
-    A strategy that returns the opponent's last non-"skip" move, or "attack"
-    if the opponent has not made a move yet.
+    A strategy that returns the defender's last non-"skip" move, or "attack"
+    if the defender has not made a move yet.
     """
 
     def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
         """
         Returns:
-            The opponent's last non-"skip" move, or "retreat" if the opponent
+            The defender's last non-"skip" move, or "retreat" if the defender
             has not made a move yet.
         """
-        # TODO: Add memory of the past and knowledge of other games
-        return game.state.last_non_skip_move or "attack"
+        for game_agent in game.agents:
+            if not game_agent.idx == agent.idx:
+                defender = game_agent
+        assert defender.state.room_ids[-1] == game.room_idx
+        last_move = game.state.last_non_skip_move
+        if last_move:
+            return last_move
+        try:
+            last_room_id = defender.state.room_ids[-2]
+        except IndexError:
+            pass
+        else:
+            last_game = env.state.game_rounds[-1][last_room_id]
+            last_move = last_game.state.last_non_skip_move
+        return last_move or "attack"
 
 
-class RetreatIfKnownAttackerStrategy(Strategy):
+class ExploitStrategy(Strategy):
     """
-    A strategy that returns "retreat" if the opponent's last move was "attack",
-    or "attack" otherwise.
+    A strategy that returns "retreat" if the defender's last move was "attack",
+    or "attack" if the defender's last move was "retreat".
     """
 
     def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
         """
         Returns:
-            "retreat" if the opponent's last move was "attack", or "attack"
+            "retreat" if the defender's last move was "attack", or "attack"
             otherwise.
         """
-        if game.state.last_non_skip_move == "attack":
-            return "retreat"
-        return "attack"
+
+        def _opposite(last_move):
+            if last_move == "attack":
+                return "retreat"
+            elif last_move == "retreat":
+                return "attack"
+            else:
+                return None
+
+        for game_agent in game.agents:
+            if not game_agent.idx == agent.idx:
+                defender = game_agent
+        assert defender.state.room_ids[-1] == game.room_idx
+        last_move = game.state.last_non_skip_move
+        if last_move:
+            return _opposite(last_move)
+        try:
+            last_room_id = defender.state.room_ids[-2]
+        except IndexError:
+            pass
+        else:
+            last_game = env.state.game_rounds[-1][last_room_id]
+            last_move = last_game.state.last_non_skip_move
+        return _opposite(last_move) or "retreat"
 
 
 class Agent:
@@ -106,6 +139,7 @@ class Agent:
         def __init__(self, init_hp):
             self.hp = init_hp
             self.xp = 0
+            self.room_ids = []
 
     def __init__(
         self,
@@ -160,7 +194,7 @@ class Game:
             return self.moves[-1][0]
 
         @property
-        def last_non_skip_move(self):
+        def last_non_skip_move(self, of_defender=True):
             """
             Returns the last non-"skip" move made in the game, or None if no
             non-"skip" moves have been made
@@ -169,10 +203,20 @@ class Game:
                 The last non-"skip" move made in the game, or None if no
                 non-"skip" moves have been made
             """
-            try:
-                return next(m for m, _ in reversed(self.moves) if m != "skip")
-            except StopIteration:
-                return None
+            move = (
+                (idx, m)
+                for idx, (m, _) in enumerate(reversed(self.moves))
+                if m != "skip"
+            )
+            while True:
+                try:
+                    idx, last_move = next(move)
+                except StopIteration:
+                    return None
+                if of_defender and (idx % 2) == 0:
+                    return last_move
+                if not of_defender and (idx % 2) == 1:
+                    return last_move
 
     def __init__(
         self,
@@ -200,9 +244,13 @@ class Game:
         xp_retreat_fail_attacker: int,
         hp_bonus: int,
         xp_bonus: int,
+        is_hp_reset: bool,
+        is_xp_reset: bool,
     ):
         self.round_idx = round_idx
         self.room_idx = room_idx
+        for agent in agents:
+            agent.state.room_ids.append(room_idx)
         self.agents = agents
         self.probability_skip = probability_skip
         self.probability_attack_success = probability_attack_success
@@ -225,13 +273,25 @@ class Game:
         self.xp_retreat_fail_attacker = xp_retreat_fail_attacker
         self.hp_bonus = hp_bonus
         self.xp_bonus = xp_bonus
+        self.is_hp_reset = is_hp_reset
+        self.is_xp_reset = is_xp_reset
         self.state = self.State()
 
-    def run(self):
+    def run(self, env):
+        for agent in self.agents:
+            if self.is_hp_reset:
+                agent.state.hp = agent.init_hp
+            if self.is_xp_reset:
+                agent.state.xp = 0
         agent_a = self.agents[0]
         agent_b = self.agents[1]
-        game_title = f"Round {self.round_idx} - Room {self.room_idx} - {agent_a.idx}({agent_a.strategy.__name__}) vs {agent_b.idx}({agent_b.strategy.__name__})"
-        log.info(f"BEGIN: {game_title}")
+        game_title = (
+            f"Round {str(self.round_idx).zfill(4)} - "
+            f"Room {str(self.room_idx).zfill(4)} - "
+            f"{str(agent_a.idx).zfill(4)}({agent_a.strategy.__name__}) vs "
+            f"{str(agent_b.idx).zfill(4)}({agent_b.strategy.__name__})"
+        )
+        log.debug(f"BEGIN: {game_title}")
         while not self._game_ended():
             if self.state.attacker == agent_a:
                 self.state.attacker = agent_b
@@ -239,12 +299,12 @@ class Game:
             else:
                 self.state.attacker = agent_a
                 self.state.defender = agent_b
-            self._process_turn()
+            self._process_turn(env)
         for agent in self.agents:
             if agent.state.hp >= 0:
                 agent.state.hp += self.hp_bonus
                 agent.state.xp += self.xp_bonus
-        log.info(f"END:   {game_title}")
+        log.debug(f"END:   {game_title}")
 
     def _game_ended(self):
         """
@@ -259,12 +319,12 @@ class Game:
             return True
         return False
 
-    def _process_turn(self):
+    def _process_turn(self, env):
         if random.random() < self.probability_skip:
             self._skip()
         else:
             action = self.state.attacker.strategy.action(
-                env=None, game=self, agent=self.state.attacker
+                env=env, game=self, agent=self.state.attacker
             )
             if action == "attack":
                 self._attack()
@@ -347,48 +407,64 @@ class Environment:
             self.game_rounds = []
             self.agents = []
             self.agents_fallen = []
-            self.total_hp_by_strategy = None
-            self.total_xp_by_strategy = None
+            self.agents_respawned = []
+            self.hp_by_strategy = []
+            self.xp_by_strategy = []
+            self.population_by_strategy = []
 
         @property
         def _new_agent_idx(self):
-            idx = str(self.num_agents).zfill(4)
+            idx = self.num_agents
             self.num_agents += 1
             return idx
 
         @property
         def _new_room_idx(self):
-            idx = str(self.num_rooms).zfill(4)
+            idx = self.num_rooms
             self.num_rooms += 1
             return idx
 
         @property
         def _new_round_idx(self):
-            idx = str(self.num_rounds).zfill(4)
+            idx = self.num_rounds
             self.num_rounds += 1
             self.num_rooms = 0
             return idx
 
-        def update_total_hp_by_strategy(self, strategies):
-            total_hp_by_strategy = {strategy: 0 for strategy in strategies}
-            for agent in self.agents:
-                total_hp_by_strategy[agent.strategy] += agent.state.hp
-            self.total_hp_by_strategy = total_hp_by_strategy
+        def update_counts(self, strategies):
+            self._update_count_hp_by_strategy(strategies)
+            self._update_count_xp_by_strategy(strategies)
+            self._update_count_population_by_strategy(strategies)
 
-        def update_total_xp_by_strategy(self, strategies):
-            total_xp_by_strategy = {strategy: 0 for strategy in strategies}
-            for agent in self.agents:
-                total_xp_by_strategy[agent.strategy] += agent.state.xp
-            self.total_xp_by_strategy = total_xp_by_strategy
+        def _update_count_hp_by_strategy(self, strategies):
+            hp_by_strategy = {strategy: 0 for strategy in strategies}
+            for agent in self.agents[-1]:
+                hp_by_strategy[agent.strategy.__name__] += agent.state.hp
+            self.hp_by_strategy.append(hp_by_strategy)
 
-        def choose_agent_strategy(self):
-            total_xp = sum(self.total_xp_by_strategy.values())
+        def _update_count_xp_by_strategy(self, strategies):
+            xp_by_strategy = {strategy: 0 for strategy in strategies}
+            for agent in self.agents[-1]:
+                xp_by_strategy[agent.strategy.__name__] += agent.state.xp
+            self.xp_by_strategy.append(xp_by_strategy)
+
+        def _update_count_population_by_strategy(self, strategies):
+            population_by_strategy = {}
+            agent_strategies = [a.strategy.__name__ for a in self.agents[-1]]
+            for strategy in strategies:
+                population_by_strategy[strategy] = agent_strategies.count(strategy)
+            self.population_by_strategy.append(population_by_strategy)
+
+        def choose_agent_strategy(self, strategies):
+            xp_by_strategy = self.xp_by_strategy[-1]
+            total_xp = sum(xp_by_strategy.values())
             try:
                 strategy_probabilities = {
-                    strategy: xp / total_xp
-                    for strategy, xp in self.total_xp_by_strategy.items()
+                    strategy: xp / total_xp for strategy, xp in xp_by_strategy.items()
                 }
-                strategy_choices = list(strategy_probabilities.keys())
+                strategy_choices = [
+                    strategies[k] for k in strategy_probabilities.keys()
+                ]
                 strategy_weights = list(strategy_probabilities.values())
                 return random.choices(strategy_choices, weights=strategy_weights, k=1)[
                     0
@@ -397,30 +473,46 @@ class Environment:
                 strategy_choices = list(strategy_probabilities.keys())
                 return random.choices(strategy_choices, k=1)[0]
 
-    def __init__(self, agent_properties, game_properties):
+    def __init__(self, num_rounds, agent_properties, game_properties):
+        self.num_rounds = num_rounds
         self.agent_properties = agent_properties
         self.game_properties = game_properties
         self.state = self.State()
-        self.state.agents = [
-            Agent(
-                idx=self.state._new_agent_idx,
-                init_hp=agent_properties["init_hp"],
-                strategy=strategy,
-            )
-            for strategy in agent_properties["strategies"]
-            for _ in range(agent_properties["num_agents_per_strategy"])
-        ]
+        self.state.agents.append(
+            [
+                Agent(
+                    idx=self.state._new_agent_idx,
+                    init_hp=agent_properties["init_hp"],
+                    strategy=strategy,
+                )
+                for strategy in agent_properties["strategies"].values()
+                for _ in range(agent_properties["num_agents_per_strategy"])
+            ]
+        )
+
+    def save(self, path):
+        with open(path, "wb") as f:
+            pickle.dump(self, f)
 
     @staticmethod
-    def run_game(game):
-        game.run()
+    def load(path):
+        with open(path, "rb") as f:
+            return pickle.load(f)
+
+    def run_game(self, game):
+        game.run(self)
 
     def get_shuffled_pairs(self):
-        random.shuffle(self.state.agents)
+        latest_agents = self.state.agents[-1]
+        random.shuffle(latest_agents)
         return [
-            (self.state.agents[i], self.state.agents[i + 1])
-            for i in range(0, len(self.state.agents), 2)
+            (latest_agents[i], latest_agents[i + 1])
+            for i in range(0, len(latest_agents), 2)
         ]
+
+    def simulate_rounds(self):
+        for _ in range(self.num_rounds):
+            self.simulate_round()
 
     def simulate_round(self):
         round_idx = self.state._new_round_idx
@@ -441,76 +533,73 @@ class Environment:
             thread.start()
         for thread in threads:
             thread.join()
-        this_round_agents = list(self.state.agents)
-        self.state.agents = [
-            agent for agent in this_round_agents if agent.state.hp >= 0
+        latest_agents = self.state.agents[-1]
+        agents_survived = [agent for agent in latest_agents if agent.state.hp >= 0]
+        agents_fallen = list(
+            set(latest_agents).symmetric_difference(set(agents_survived))
+        )
+        self.state.update_counts(self.agent_properties["strategies"].keys())
+        agents_respawned = [
+            Agent(
+                idx=self.state._new_agent_idx,
+                init_hp=self.agent_properties["init_hp"],
+                strategy=self.state.choose_agent_strategy(
+                    self.agent_properties["strategies"]
+                ),
+            )
+            for _ in range(len(agents_fallen))
         ]
-        newly_fallen = list(
-            set(this_round_agents).symmetric_difference(set(self.state.agents))
-        )
-        self.state.agents_fallen.extend(newly_fallen)
-        self.state.update_total_hp_by_strategy(self.agent_properties["strategies"])
-        self.state.update_total_xp_by_strategy(self.agent_properties["strategies"])
-        self.state.agents.extend(
-            [
-                Agent(
-                    idx=self.state._new_agent_idx,
-                    init_hp=self.agent_properties["init_hp"],
-                    strategy=self.state.choose_agent_strategy(),
-                )
-                for _ in range(len(newly_fallen))
-            ]
-        )
+        self.state.agents.append(agents_survived + agents_respawned)
+        self.state.agents_fallen.append(agents_fallen)
+        self.state.agents_respawned.append(agents_respawned)
 
 
-def main(save_to_file=None):
+def main(save_path=None):
     env = Environment(
+        num_rounds=1000,
         agent_properties=dict(
-            init_hp=1000,
-            strategies=[
-                AlwaysAttackStrategy,
-                AlwaysRetreatStrategy,
-                TitForTatStrategy,
-                RetreatIfKnownAttackerStrategy,
-            ],
-            num_agents_per_strategy=30,
+            init_hp=100,
+            strategies={
+                s.__name__: s
+                for s in [
+                    AttackStrategy,
+                    RetreatStrategy,
+                    RetaliateStrategy,
+                    ExploitStrategy,
+                ]
+            },
+            num_agents_per_strategy=250,
         ),
         game_properties=dict(
-            probability_skip=0.1,
-            probability_attack_success=0.7,
-            probability_retreat_success=0.6,
-            hp_attack_success_defender=-10,  # defender loses 10hp upon successful attack
+            probability_skip=0.2,
+            probability_attack_success=0.8,
+            probability_retreat_success=0.4,
+            hp_attack_success_defender=-10,
             hp_attack_success_attacker=0,
             hp_attack_fail_defender=0,
             hp_attack_fail_attacker=0,
             hp_retreat_success_defender=0,
             hp_retreat_success_attacker=0,
             hp_retreat_fail_defender=0,
-            hp_retreat_fail_attacker=-1,  # attacker loses 1hp if retreat fails
+            hp_retreat_fail_attacker=0,
             xp_attack_success_defender=0,
-            xp_attack_success_attacker=10,  # Attacker gains 10 xp upon successful attack
-            xp_attack_fail_defender=1,  # Defender gains 1 xp if attack is a fail
+            xp_attack_success_attacker=2,
+            xp_attack_fail_defender=5,
             xp_attack_fail_attacker=0,
-            xp_retreat_success_defender=1,  # Defender gains 1 xp if retreat is successful
-            xp_retreat_success_attacker=0,
-            xp_retreat_fail_defender=1,  # Defender gains 1xp if retreat is a fail
+            xp_retreat_success_defender=0,
+            xp_retreat_success_attacker=4,
+            xp_retreat_fail_defender=2,
             xp_retreat_fail_attacker=0,
             hp_bonus=1,
             xp_bonus=1,
+            is_hp_reset=False,
+            is_xp_reset=False,
         ),
     )
-    num_rounds = 1000
-    for _ in range(num_rounds):
-        env.simulate_round()
-    if save_to_file:
-        with open(save_to_file, "wb") as f:
-            pickle.dump(env, f)
-
-
-def load_from_file(path):
-    with open(path, "rb") as f:
-        return pickle.load(f)
+    env.simulate_rounds()
+    if save_path:
+        env.save(save_path)
 
 
 if __name__ == "__main__":
-    main(save_to_file="/tmp/environment.pickle")
+    main(save_path="/tmp/environment.pickle")
