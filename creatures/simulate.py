@@ -22,7 +22,7 @@ class Strategy:
     action to take based on the states of the environment, game, and agent.
     """
 
-    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
+    def action(env: "Environment", game: "Game", agent: "Agent"):
         """
         Calculates the next action to take based on the states of the
         environment, game, and agent.
@@ -38,11 +38,7 @@ class RetreatStrategy(Strategy):
     A strategy that always returns "retreat".
     """
 
-    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
-        """
-        Returns:
-            "retreat"
-        """
+    def action(**kwargs):
         return "retreat"
 
 
@@ -51,11 +47,7 @@ class AttackStrategy(Strategy):
     A strategy that always returns "attack".
     """
 
-    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
-        """
-        Returns:
-            "attack"
-        """
+    def action(**kwargs):
         return "attack"
 
 
@@ -65,26 +57,10 @@ class RetaliateStrategy(Strategy):
     if the defender has not made a move yet.
     """
 
-    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
-        """
-        Returns:
-            The defender's last non-"skip" move, or "retreat" if the defender
-            has not made a move yet.
-        """
-        for game_agent in game.agents:
-            if not game_agent.idx == agent.idx:
-                defender = game_agent
+    def action(game: "Game", **kwargs):
+        defender = game.state.defender
         assert defender.state.room_ids[-1] == game.room_idx
-        last_move = game.state.last_non_skip_move
-        if last_move:
-            return last_move
-        try:
-            last_room_id = defender.state.room_ids[-2]
-        except IndexError:
-            pass
-        else:
-            last_game = env.state.game_rounds[-1][last_room_id]
-            last_move = last_game.state.last_non_skip_move
+        last_move = defender.state.last_non_skip_move
         return last_move or "attack"
 
 
@@ -94,13 +70,7 @@ class ExploitStrategy(Strategy):
     or "attack" if the defender's last move was "retreat".
     """
 
-    def action(env: "Environment" = None, game: "Game" = None, agent: "Agent" = None):
-        """
-        Returns:
-            "retreat" if the defender's last move was "attack", or "attack"
-            otherwise.
-        """
-
+    def action(game: "Game", **kwargs):
         def _opposite(last_move):
             if last_move == "attack":
                 return "retreat"
@@ -109,20 +79,8 @@ class ExploitStrategy(Strategy):
             else:
                 return None
 
-        for game_agent in game.agents:
-            if not game_agent.idx == agent.idx:
-                defender = game_agent
-        assert defender.state.room_ids[-1] == game.room_idx
-        last_move = game.state.last_non_skip_move
-        if last_move:
-            return _opposite(last_move)
-        try:
-            last_room_id = defender.state.room_ids[-2]
-        except IndexError:
-            pass
-        else:
-            last_game = env.state.game_rounds[-1][last_room_id]
-            last_move = last_game.state.last_non_skip_move
+        defender = game.state.defender
+        last_move = defender.state.last_non_skip_move
         return _opposite(last_move) or "retreat"
 
 
@@ -140,6 +98,32 @@ class Agent:
             self.hp = init_hp
             self.xp = 0
             self.room_ids = []
+            self.moves: List[List[Tuple[str, bool]]] = []
+
+        @property
+        def last_move(self):
+            """
+            Returns:
+                The last move made by agent, or None if no moves have been
+                made yet.
+            """
+            if len(self.moves) == 0:
+                return None
+            # NOTE: Last move of last game
+            # NOTE: For now move success is not returned
+            return self.moves[-1][-1][0]
+
+        @property
+        def last_non_skip_move(self):
+            """
+            Returns:
+                The last non-"skip" move made by the agent, or None if no
+                non-"skip" moves have been made
+            """
+            for game in reversed(self.moves):
+                for move, _ in reversed(game):
+                    if move != "skip":
+                        return move
 
     def __init__(
         self,
@@ -191,7 +175,7 @@ class Game:
             """
             if len(self.moves) == 0:
                 return None
-            return self.moves[-1][0]
+            return self.moves[-1][0]  # NOTE: For now move success is not returned
 
         @property
         def last_non_skip_move(self, of_defender=True):
@@ -215,7 +199,7 @@ class Game:
                     return None
                 if of_defender and (idx % 2) == 0:
                     return last_move
-                if not of_defender and (idx % 2) == 1:
+                if (not of_defender) and (idx % 2) == 1:
                     return last_move
 
     def __init__(
@@ -283,6 +267,7 @@ class Game:
                 agent.state.hp = agent.init_hp
             if self.is_xp_reset:
                 agent.state.xp = 0
+            agent.state.moves.append([])
         agent_a = self.agents[0]
         agent_b = self.agents[1]
         game_title = (
@@ -334,12 +319,9 @@ class Game:
                 raise ValueError(f"Invalid Action, {action}")
 
     def _skip(self):
-        self.state.moves.append(
-            (
-                "skip",
-                None,
-            )
-        )
+        move = ("skip", None)
+        self.state.moves.append(move)
+        self.state.attacker.state.moves[-1].append(move)
 
     def _attack(self):
         if random.random() < self.probability_attack_success:
@@ -347,23 +329,17 @@ class Game:
             self.state.attacker.state.hp += self.hp_attack_success_attacker
             self.state.defender.state.xp += self.xp_attack_success_defender
             self.state.attacker.state.xp += self.xp_attack_success_attacker
-            self.state.moves.append(
-                (
-                    "attack",
-                    True,
-                )
-            )
+            move = ("attack", True)
+            self.state.moves.append(move)
+            self.state.attacker.state.moves[-1].append(move)
         else:
             self.state.defender.state.hp += self.hp_attack_fail_defender
             self.state.attacker.state.hp += self.hp_attack_fail_attacker
             self.state.defender.state.xp += self.xp_attack_fail_defender
             self.state.attacker.state.xp += self.xp_attack_fail_attacker
-            self.state.moves.append(
-                (
-                    "attack",
-                    False,
-                )
-            )
+            move = ("attack", False)
+            self.state.moves.append(move)
+            self.state.attacker.state.moves[-1].append(move)
 
     def _retreat(self):
         if random.random() < self.probability_retreat_success:
@@ -371,23 +347,17 @@ class Game:
             self.state.attacker.state.hp += self.hp_retreat_success_attacker
             self.state.defender.state.xp += self.xp_retreat_success_defender
             self.state.attacker.state.xp += self.xp_retreat_success_attacker
-            self.state.moves.append(
-                (
-                    "retreat",
-                    True,
-                )
-            )
+            move = ("retreat", True)
+            self.state.moves.append(move)
+            self.state.attacker.state.moves[-1].append(move)
         else:
             self.state.defender.state.hp += self.hp_retreat_fail_defender
             self.state.attacker.state.hp += self.hp_retreat_fail_attacker
             self.state.defender.state.xp += self.xp_retreat_fail_defender
             self.state.attacker.state.xp += self.xp_retreat_fail_attacker
-            self.state.moves.append(
-                (
-                    "retreat",
-                    False,
-                )
-            )
+            move = ("retreat", False)
+            self.state.moves.append(move)
+            self.state.attacker.state.moves[-1].append(move)
 
 
 class Environment:
