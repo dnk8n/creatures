@@ -34,43 +34,22 @@ class Strategy:
 
 
 class RetreatStrategy(Strategy):
-    """
-    A strategy that always returns "retreat".
-    """
-
-    def action(**kwargs):
+    def action(**_):
         return "retreat"
 
 
 class AttackStrategy(Strategy):
-    """
-    A strategy that always returns "attack".
-    """
-
-    def action(**kwargs):
+    def action(**_):
         return "attack"
 
 
 class RetaliateStrategy(Strategy):
-    """
-    A strategy that returns the defender's last non-"skip" move, or "attack"
-    if the defender has not made a move yet.
-    """
-
-    def action(game: "Game", **kwargs):
-        defender = game.state.defender
-        assert defender.state.room_ids[-1] == game.room_idx
-        last_move = defender.state.last_non_skip_move
-        return last_move or "attack"
+    def action(game: "Game", **_):
+        return game.state.defender.state.last_non_skip_move or "retreat"
 
 
 class ExploitStrategy(Strategy):
-    """
-    A strategy that returns "retreat" if the defender's last move was "attack",
-    or "attack" if the defender's last move was "retreat".
-    """
-
-    def action(game: "Game", **kwargs):
+    def action(game: "Game", **_):
         def _opposite(last_move):
             if last_move == "attack":
                 return "retreat"
@@ -79,9 +58,7 @@ class ExploitStrategy(Strategy):
             else:
                 return None
 
-        defender = game.state.defender
-        last_move = defender.state.last_non_skip_move
-        return _opposite(last_move) or "retreat"
+        return _opposite(game.state.defender.state.last_non_skip_move) or "retreat"
 
 
 class Agent:
@@ -100,30 +77,21 @@ class Agent:
             self.room_ids = []
             self.moves: List[List[Tuple[str, bool]]] = []
 
+        def _last_move(self, is_this_game=False, is_skip_ok=True):
+            for game in reversed(self.moves):
+                for move, _ in reversed(game):
+                    if is_skip_ok or move != "skip":
+                        return move
+                if is_this_game:
+                    break
+
         @property
         def last_move(self):
-            """
-            Returns:
-                The last move made by agent, or None if no moves have been
-                made yet.
-            """
-            if len(self.moves) == 0:
-                return None
-            # NOTE: Last move of last game
-            # NOTE: For now move success is not returned
-            return self.moves[-1][-1][0]
+            return self._last_move()
 
         @property
         def last_non_skip_move(self):
-            """
-            Returns:
-                The last non-"skip" move made by the agent, or None if no
-                non-"skip" moves have been made
-            """
-            for game in reversed(self.moves):
-                for move, _ in reversed(game):
-                    if move != "skip":
-                        return move
+            return self._last_move(is_skip_ok=False)
 
     def __init__(
         self,
@@ -132,6 +100,7 @@ class Agent:
         strategy: "Strategy",
     ):
         self.idx = idx
+        self.init_hp = init_hp
         self.strategy = strategy
         self.state = self.State(init_hp)
 
@@ -150,57 +119,33 @@ class Game:
     """
 
     class State:
-        """
-        Represents the state of a game, including a list of moves made so far.
-
-        Attributes:
-            moves: A list of tuples representing the moves made in the game so
-                   far, and their if successful.
-        """
-
         def __init__(self):
-            """
-            Initializes a new instance of the State class.
-            """
             self.moves: List[Tuple[str, bool]] = []
             self.attacker: "Agent" = None
             self.defender: "Agent" = None
 
-        @property
-        def last_move(self):
-            """
-            Returns:
-                The last move made in the game, or None if no moves have been
-                made yet.
-            """
-            if len(self.moves) == 0:
-                return None
-            return self.moves[-1][0]  # NOTE: For now move success is not returned
+        def _last_move(self, is_of_defender=True, is_skip_ok=True):
+            is_this_game = True
+            if is_of_defender:
+                return self.defender.state._last_move(is_this_game, is_skip_ok)
+            else:
+                return self.attacker.state._last_move(is_this_game, is_skip_ok)
 
         @property
-        def last_non_skip_move(self, of_defender=True):
-            """
-            Returns the last non-"skip" move made in the game, or None if no
-            non-"skip" moves have been made
+        def defender_last_move(self):
+            return self._last_move()
 
-            Returns:
-                The last non-"skip" move made in the game, or None if no
-                non-"skip" moves have been made
-            """
-            move = (
-                (idx, m)
-                for idx, (m, _) in enumerate(reversed(self.moves))
-                if m != "skip"
-            )
-            while True:
-                try:
-                    idx, last_move = next(move)
-                except StopIteration:
-                    return None
-                if of_defender and (idx % 2) == 0:
-                    return last_move
-                if (not of_defender) and (idx % 2) == 1:
-                    return last_move
+        @property
+        def attacker_last_move(self):
+            return self._last_move(is_of_defender=False)
+
+        @property
+        def defender_last_non_skip_move(self):
+            return self._last_move(is_skip_ok=False)
+
+        @property
+        def attacker_last_non_skip_move(self):
+            return self._last_move(is_of_defender=False, is_skip_ok=False)
 
     def __init__(
         self,
@@ -230,6 +175,7 @@ class Game:
         xp_bonus: int,
         is_hp_reset: bool,
         is_xp_reset: bool,
+        **_,
     ):
         self.round_idx = round_idx
         self.room_idx = room_idx
@@ -292,10 +238,6 @@ class Game:
         log.debug(f"END:   {game_title}")
 
     def _game_ended(self):
-        """
-        Returns:
-            True if the game has ended, False otherwise.
-        """
         if not self.state.attacker or not self.state.defender:
             return False
         if self.state.attacker.state.hp < 0 or self.state.defender.state.hp < 0:
@@ -425,24 +367,6 @@ class Environment:
                 population_by_strategy[strategy] = agent_strategies.count(strategy)
             self.population_by_strategy.append(population_by_strategy)
 
-        def choose_agent_strategy(self, strategies):
-            xp_by_strategy = self.xp_by_strategy[-1]
-            total_xp = sum(xp_by_strategy.values())
-            try:
-                strategy_probabilities = {
-                    strategy: xp / total_xp for strategy, xp in xp_by_strategy.items()
-                }
-                strategy_choices = [
-                    strategies[k] for k in strategy_probabilities.keys()
-                ]
-                strategy_weights = list(strategy_probabilities.values())
-                return random.choices(strategy_choices, weights=strategy_weights, k=1)[
-                    0
-                ]
-            except ZeroDivisionError:
-                strategy_choices = list(strategy_probabilities.keys())
-                return random.choices(strategy_choices, k=1)[0]
-
     def __init__(self, num_rounds, agent_properties, game_properties):
         self.num_rounds = num_rounds
         self.agent_properties = agent_properties
@@ -480,6 +404,26 @@ class Environment:
             for i in range(0, len(latest_agents), 2)
         ]
 
+    def choose_agent_strategy(self, strategies):
+        xp_by_strategy = self.state.xp_by_strategy[-1]
+        total_xp = sum(xp_by_strategy.values())
+        try:
+            strategy_probabilities = {
+                strategy: xp / total_xp for strategy, xp in xp_by_strategy.items()
+            }
+            strategy_choices = [strategies[k] for k in strategy_probabilities.keys()]
+            if (
+                random.random()
+                < self.game_properties["probability_strategy_choice_mutation"]
+            ):
+                strategy_weights = [1 / s for s in strategy_probabilities.values()]
+            else:
+                strategy_weights = list(strategy_probabilities.values())
+            return random.choices(strategy_choices, weights=strategy_weights, k=1)[0]
+        except ZeroDivisionError:
+            strategy_choices = list(strategy_probabilities.keys())
+            return random.choices(strategy_choices, k=1)[0]
+
     def simulate_rounds(self):
         for _ in range(self.num_rounds):
             self.simulate_round()
@@ -513,7 +457,7 @@ class Environment:
             Agent(
                 idx=self.state._new_agent_idx,
                 init_hp=self.agent_properties["init_hp"],
-                strategy=self.state.choose_agent_strategy(
+                strategy=self.choose_agent_strategy(
                     self.agent_properties["strategies"]
                 ),
             )
@@ -544,6 +488,7 @@ def main(save_path=None):
             probability_skip=0.2,
             probability_attack_success=0.8,
             probability_retreat_success=0.4,
+            probability_strategy_choice_mutation=0.01,
             hp_attack_success_defender=-10,
             hp_attack_success_attacker=0,
             hp_attack_fail_defender=0,
@@ -553,15 +498,15 @@ def main(save_path=None):
             hp_retreat_fail_defender=0,
             hp_retreat_fail_attacker=0,
             xp_attack_success_defender=0,
-            xp_attack_success_attacker=2,
+            xp_attack_success_attacker=10,
             xp_attack_fail_defender=5,
             xp_attack_fail_attacker=0,
             xp_retreat_success_defender=0,
-            xp_retreat_success_attacker=4,
-            xp_retreat_fail_defender=2,
+            xp_retreat_success_attacker=2,
+            xp_retreat_fail_defender=0,
             xp_retreat_fail_attacker=0,
-            hp_bonus=1,
-            xp_bonus=1,
+            hp_bonus=-10,
+            xp_bonus=20,
             is_hp_reset=False,
             is_xp_reset=False,
         ),
