@@ -45,7 +45,7 @@ class AttackStrategy(Strategy):
 
 class RetaliateStrategy(Strategy):
     def action(game: "Game", **_):
-        return game.state.defender.state.last_non_skip_move or "retreat"
+        return game.state.opposer.state.last_non_skip_move or "retreat"
 
 
 class ExploitStrategy(Strategy):
@@ -58,7 +58,7 @@ class ExploitStrategy(Strategy):
             else:
                 return None
 
-        return _opposite(game.state.defender.state.last_non_skip_move) or "retreat"
+        return _opposite(game.state.opposer.state.last_non_skip_move) or "retreat"
 
 
 class Agent:
@@ -121,56 +121,56 @@ class Game:
     class State:
         def __init__(self):
             self.moves: List[Tuple[str, bool]] = []
-            self.attacker: "Agent" = None
-            self.defender: "Agent" = None
+            self.mover: "Agent" = None
+            self.opposer: "Agent" = None
 
-        def _last_move(self, is_of_defender=True, is_skip_ok=True):
+        def _last_move(self, is_of_opposer=True, is_skip_ok=True):
             is_this_game = True
-            if is_of_defender:
-                return self.defender.state._last_move(is_this_game, is_skip_ok)
+            if is_of_opposer:
+                return self.opposer.state._last_move(is_this_game, is_skip_ok)
             else:
-                return self.attacker.state._last_move(is_this_game, is_skip_ok)
+                return self.mover.state._last_move(is_this_game, is_skip_ok)
 
         @property
-        def defender_last_move(self):
+        def opposer_last_move(self):
             return self._last_move()
 
         @property
-        def attacker_last_move(self):
-            return self._last_move(is_of_defender=False)
+        def mover_last_move(self):
+            return self._last_move(is_of_opposer=False)
 
         @property
-        def defender_last_non_skip_move(self):
+        def opposer_last_non_skip_move(self):
             return self._last_move(is_skip_ok=False)
 
         @property
-        def attacker_last_non_skip_move(self):
-            return self._last_move(is_of_defender=False, is_skip_ok=False)
+        def mover_last_non_skip_move(self):
+            return self._last_move(is_of_opposer=False, is_skip_ok=False)
 
     def __init__(
         self,
         round_idx: str,
         room_idx: str,
         agents: Tuple["Agent"],
-        probability_skip: float,
-        probability_attack_success: float,
-        probability_retreat_success: float,
-        hp_attack_success_defender: int,
-        hp_attack_success_attacker: int,
-        hp_attack_fail_defender: int,
-        hp_attack_fail_attacker: int,
-        hp_retreat_success_defender: int,
-        hp_retreat_success_attacker: int,
-        hp_retreat_fail_defender: int,
-        hp_retreat_fail_attacker: int,
-        xp_attack_success_defender: int,
-        xp_attack_success_attacker: int,
-        xp_attack_fail_defender: int,
-        xp_attack_fail_attacker: int,
-        xp_retreat_success_defender: int,
-        xp_retreat_success_attacker: int,
-        xp_retreat_fail_defender: int,
-        xp_retreat_fail_attacker: int,
+        prob_skip: float,
+        prob_attack_success: float,
+        prob_retreat_success: float,
+        hp_attack_success_opposer: int,
+        hp_attack_success_mover: int,
+        hp_attack_fail_opposer: int,
+        hp_attack_fail_mover: int,
+        hp_retreat_success_opposer: int,
+        hp_retreat_success_mover: int,
+        hp_retreat_fail_opposer: int,
+        hp_retreat_fail_mover: int,
+        xp_attack_success_opposer: int,
+        xp_attack_success_mover: int,
+        xp_attack_fail_opposer: int,
+        xp_attack_fail_mover: int,
+        xp_retreat_success_opposer: int,
+        xp_retreat_success_mover: int,
+        xp_retreat_fail_opposer: int,
+        xp_retreat_fail_mover: int,
         hp_bonus: int,
         xp_bonus: int,
         is_hp_reset: bool,
@@ -182,25 +182,25 @@ class Game:
         for agent in agents:
             agent.state.room_ids.append(room_idx)
         self.agents = agents
-        self.probability_skip = probability_skip
-        self.probability_attack_success = probability_attack_success
-        self.probability_retreat_success = probability_retreat_success
-        self.hp_attack_success_defender = hp_attack_success_defender
-        self.hp_attack_success_attacker = hp_attack_success_attacker
-        self.hp_attack_fail_defender = hp_attack_fail_defender
-        self.hp_attack_fail_attacker = hp_attack_fail_attacker
-        self.hp_retreat_success_defender = hp_retreat_success_defender
-        self.hp_retreat_success_attacker = hp_retreat_success_attacker
-        self.hp_retreat_fail_defender = hp_retreat_fail_defender
-        self.hp_retreat_fail_attacker = hp_retreat_fail_attacker
-        self.xp_attack_success_defender = xp_attack_success_defender
-        self.xp_attack_success_attacker = xp_attack_success_attacker
-        self.xp_attack_fail_defender = xp_attack_fail_defender
-        self.xp_attack_fail_attacker = xp_attack_fail_attacker
-        self.xp_retreat_success_defender = xp_retreat_success_defender
-        self.xp_retreat_success_attacker = xp_retreat_success_attacker
-        self.xp_retreat_fail_defender = xp_retreat_fail_defender
-        self.xp_retreat_fail_attacker = xp_retreat_fail_attacker
+        self.prob_skip = prob_skip
+        self.prob_attack_success = prob_attack_success
+        self.prob_retreat_success = prob_retreat_success
+        self.hp_attack_success_opposer = hp_attack_success_opposer
+        self.hp_attack_success_mover = hp_attack_success_mover
+        self.hp_attack_fail_opposer = hp_attack_fail_opposer
+        self.hp_attack_fail_mover = hp_attack_fail_mover
+        self.hp_retreat_success_opposer = hp_retreat_success_opposer
+        self.hp_retreat_success_mover = hp_retreat_success_mover
+        self.hp_retreat_fail_opposer = hp_retreat_fail_opposer
+        self.hp_retreat_fail_mover = hp_retreat_fail_mover
+        self.xp_attack_success_opposer = xp_attack_success_opposer
+        self.xp_attack_success_mover = xp_attack_success_mover
+        self.xp_attack_fail_opposer = xp_attack_fail_opposer
+        self.xp_attack_fail_mover = xp_attack_fail_mover
+        self.xp_retreat_success_opposer = xp_retreat_success_opposer
+        self.xp_retreat_success_mover = xp_retreat_success_mover
+        self.xp_retreat_fail_opposer = xp_retreat_fail_opposer
+        self.xp_retreat_fail_mover = xp_retreat_fail_mover
         self.hp_bonus = hp_bonus
         self.xp_bonus = xp_bonus
         self.is_hp_reset = is_hp_reset
@@ -209,6 +209,9 @@ class Game:
 
     def run(self, env):
         for agent in self.agents:
+            if agent.state.hp >= 0:
+                agent.state.hp += self.hp_bonus
+                agent.state.xp += self.xp_bonus
             if self.is_hp_reset:
                 agent.state.hp = agent.init_hp
             if self.is_xp_reset:
@@ -219,39 +222,35 @@ class Game:
         game_title = (
             f"Round {str(self.round_idx).zfill(4)} - "
             f"Room {str(self.room_idx).zfill(4)} - "
-            f"{str(agent_a.idx).zfill(4)}({agent_a.strategy.__name__}) vs "
-            f"{str(agent_b.idx).zfill(4)}({agent_b.strategy.__name__})"
+            f"{str(agent_a.idx).zfill(4)}({agent_a.strategy}) vs "
+            f"{str(agent_b.idx).zfill(4)}({agent_b.strategy})"
         )
         log.debug(f"BEGIN: {game_title}")
         while not self._game_ended():
-            if self.state.attacker == agent_a:
-                self.state.attacker = agent_b
-                self.state.defender = agent_a
+            if self.state.mover == agent_a:
+                self.state.mover = agent_b
+                self.state.opposer = agent_a
             else:
-                self.state.attacker = agent_a
-                self.state.defender = agent_b
+                self.state.mover = agent_a
+                self.state.opposer = agent_b
             self._process_turn(env)
-        for agent in self.agents:
-            if agent.state.hp >= 0:
-                agent.state.hp += self.hp_bonus
-                agent.state.xp += self.xp_bonus
         log.debug(f"END:   {game_title}")
 
     def _game_ended(self):
-        if not self.state.attacker or not self.state.defender:
+        if not self.state.mover or not self.state.opposer:
             return False
-        if self.state.attacker.state.hp < 0 or self.state.defender.state.hp < 0:
+        if self.state.mover.state.hp < 0 or self.state.opposer.state.hp < 0:
             return True
         if self.state.moves[-1][0] == "retreat" and self.state.moves[-1][1]:
             return True
         return False
 
     def _process_turn(self, env):
-        if random.random() < self.probability_skip:
+        if random.random() < self.prob_skip:
             self._skip()
         else:
-            action = self.state.attacker.strategy.action(
-                env=env, game=self, agent=self.state.attacker
+            action = self.state.mover.strategy.action(
+                env=env, game=self, agent=self.state.mover
             )
             if action == "attack":
                 self._attack()
@@ -263,43 +262,43 @@ class Game:
     def _skip(self):
         move = ("skip", None)
         self.state.moves.append(move)
-        self.state.attacker.state.moves[-1].append(move)
+        self.state.mover.state.moves[-1].append(move)
 
     def _attack(self):
-        if random.random() < self.probability_attack_success:
-            self.state.defender.state.hp += self.hp_attack_success_defender
-            self.state.attacker.state.hp += self.hp_attack_success_attacker
-            self.state.defender.state.xp += self.xp_attack_success_defender
-            self.state.attacker.state.xp += self.xp_attack_success_attacker
+        if random.random() < self.prob_attack_success:
+            self.state.opposer.state.hp += self.hp_attack_success_opposer
+            self.state.mover.state.hp += self.hp_attack_success_mover
+            self.state.opposer.state.xp += self.xp_attack_success_opposer
+            self.state.mover.state.xp += self.xp_attack_success_mover
             move = ("attack", True)
             self.state.moves.append(move)
-            self.state.attacker.state.moves[-1].append(move)
+            self.state.mover.state.moves[-1].append(move)
         else:
-            self.state.defender.state.hp += self.hp_attack_fail_defender
-            self.state.attacker.state.hp += self.hp_attack_fail_attacker
-            self.state.defender.state.xp += self.xp_attack_fail_defender
-            self.state.attacker.state.xp += self.xp_attack_fail_attacker
+            self.state.opposer.state.hp += self.hp_attack_fail_opposer
+            self.state.mover.state.hp += self.hp_attack_fail_mover
+            self.state.opposer.state.xp += self.xp_attack_fail_opposer
+            self.state.mover.state.xp += self.xp_attack_fail_mover
             move = ("attack", False)
             self.state.moves.append(move)
-            self.state.attacker.state.moves[-1].append(move)
+            self.state.mover.state.moves[-1].append(move)
 
     def _retreat(self):
-        if random.random() < self.probability_retreat_success:
-            self.state.defender.state.hp += self.hp_retreat_success_defender
-            self.state.attacker.state.hp += self.hp_retreat_success_attacker
-            self.state.defender.state.xp += self.xp_retreat_success_defender
-            self.state.attacker.state.xp += self.xp_retreat_success_attacker
+        if random.random() < self.prob_retreat_success:
+            self.state.opposer.state.hp += self.hp_retreat_success_opposer
+            self.state.mover.state.hp += self.hp_retreat_success_mover
+            self.state.opposer.state.xp += self.xp_retreat_success_opposer
+            self.state.mover.state.xp += self.xp_retreat_success_mover
             move = ("retreat", True)
             self.state.moves.append(move)
-            self.state.attacker.state.moves[-1].append(move)
+            self.state.mover.state.moves[-1].append(move)
         else:
-            self.state.defender.state.hp += self.hp_retreat_fail_defender
-            self.state.attacker.state.hp += self.hp_retreat_fail_attacker
-            self.state.defender.state.xp += self.xp_retreat_fail_defender
-            self.state.attacker.state.xp += self.xp_retreat_fail_attacker
+            self.state.opposer.state.hp += self.hp_retreat_fail_opposer
+            self.state.mover.state.hp += self.hp_retreat_fail_mover
+            self.state.opposer.state.xp += self.xp_retreat_fail_opposer
+            self.state.mover.state.xp += self.xp_retreat_fail_mover
             move = ("retreat", False)
             self.state.moves.append(move)
-            self.state.attacker.state.moves[-1].append(move)
+            self.state.mover.state.moves[-1].append(move)
 
 
 class Environment:
@@ -407,21 +406,18 @@ class Environment:
     def choose_agent_strategy(self, strategies):
         xp_by_strategy = self.state.xp_by_strategy[-1]
         total_xp = sum(xp_by_strategy.values())
+        strategy_choices = list(strategies.values())
         try:
             strategy_probabilities = {
                 strategy: xp / total_xp for strategy, xp in xp_by_strategy.items()
             }
-            strategy_choices = [strategies[k] for k in strategy_probabilities.keys()]
-            if (
-                random.random()
-                < self.game_properties["probability_strategy_choice_mutation"]
-            ):
+            if random.random() < self.game_properties["prob_strategy_choice_mutation"]:
                 strategy_weights = [1 / s for s in strategy_probabilities.values()]
             else:
                 strategy_weights = list(strategy_probabilities.values())
             return random.choices(strategy_choices, weights=strategy_weights, k=1)[0]
-        except ZeroDivisionError:
-            strategy_choices = list(strategy_probabilities.keys())
+        except ZeroDivisionError as e:
+            log.error(e)
             return random.choices(strategy_choices, k=1)[0]
 
     def simulate_rounds(self):
@@ -485,28 +481,28 @@ def main(save_path=None):
             num_agents_per_strategy=250,
         ),
         game_properties=dict(
-            probability_skip=0.2,
-            probability_attack_success=0.8,
-            probability_retreat_success=0.4,
-            probability_strategy_choice_mutation=0.01,
-            hp_attack_success_defender=-10,
-            hp_attack_success_attacker=0,
-            hp_attack_fail_defender=0,
-            hp_attack_fail_attacker=0,
-            hp_retreat_success_defender=0,
-            hp_retreat_success_attacker=0,
-            hp_retreat_fail_defender=0,
-            hp_retreat_fail_attacker=0,
-            xp_attack_success_defender=0,
-            xp_attack_success_attacker=10,
-            xp_attack_fail_defender=5,
-            xp_attack_fail_attacker=0,
-            xp_retreat_success_defender=0,
-            xp_retreat_success_attacker=2,
-            xp_retreat_fail_defender=0,
-            xp_retreat_fail_attacker=0,
-            hp_bonus=-10,
-            xp_bonus=20,
+            prob_skip=0.2,
+            prob_attack_success=0.8,
+            prob_retreat_success=0.4,
+            prob_strategy_choice_mutation=0.01,
+            hp_attack_success_opposer=-10,
+            hp_attack_success_mover=0,
+            hp_attack_fail_opposer=0,
+            hp_attack_fail_mover=0,
+            hp_retreat_success_opposer=0,
+            hp_retreat_success_mover=0,
+            hp_retreat_fail_opposer=0,
+            hp_retreat_fail_mover=0,
+            xp_attack_success_opposer=0,
+            xp_attack_success_mover=7,
+            xp_attack_fail_opposer=2,
+            xp_attack_fail_mover=0,
+            xp_retreat_success_opposer=0,
+            xp_retreat_success_mover=43,
+            xp_retreat_fail_opposer=0,
+            xp_retreat_fail_mover=0,
+            hp_bonus=-1,
+            xp_bonus=2,
             is_hp_reset=False,
             is_xp_reset=False,
         ),
